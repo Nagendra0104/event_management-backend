@@ -9,33 +9,125 @@ const cookieParser = require("cookie-parser");
 const multer = require("multer");
 const path = require("path");
 const QRCode = require("qrcode");
-
+const Event = require("./models/Event");
 const Ticket = require("./models/Ticket");
 const connectToMongoDB = require("./connectdb.js");
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
+const http = require("http");
+const socketIo = require("socket.io");
 const app = express();
+const server = http.createServer(app);
+
+// Initialize Socket.IO
+const io = socketIo(server, {
+  cors: {
+    origin: "*", // Allow all origins for development, adjust in production
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log('A user connected: ' + socket.id);
+
+  // Emit event on socket connection
+  socket.emit('welcome', { message: 'Welcome to the event ticketing system!' });
+
+  // Listen for events sent from the client
+  socket.on('purchaseTicket', (ticketData) => {
+    console.log('Ticket purchase initiated:', ticketData);
+    io.emit('ticketPurchased', ticketData);  // Broadcast to all clients
+  });
+
+  // Handle socket disconnect
+  socket.on('disconnect', () => {
+    console.log('A user disconnected: ' + socket.id);
+  });
+});
+
 
 const bcryptSalt = bcrypt.genSaltSync(10);
-const jwtSecret = "bsbsfbrnsftentwnnwnwn";
+const jwtSecret = process.env.JWT_SECRET;
 
 app.use(express.json());
 app.use(cookieParser());
-app.use(
-  cors()
-);
+app.use(cors({ credentials: true, origin: "http://localhost:5173" }));
 
 // Connect to MongoDB
 connectToMongoDB();
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname);
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => {
+//     cb(null, "uploads/");
+//   },
+//   filename: (req, file, cb) => {
+//     cb(null, file.originalname);
+//   },
+// });
+
+// const upload = multer({ storage });
+
+//make forgot password apis to send otp to email and verify otp and reset password
+const otpMap = new Map();
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL,
+    pass: process.env.EMAIL_PASSWORD,
   },
 });
 
-const upload = multer({ storage });
+app.post("/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  const user = await UserModel.findOne({ email });
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const otp = crypto.randomInt(100000, 999999).toString();
+  otpMap.set(email, otp);
+
+  const mailOptions = {
+    from: process.env.EMAIL,
+    to: email,
+    subject: "Password Reset OTP",
+    text: `Your OTP for password reset is ${otp}`,
+  };
+
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      return res.status(500).json({ error: "Failed to send OTP" });
+    }
+    res.json({ message: "OTP sent to email" });
+  });
+});
+
+app.post("/verify-otp", (req, res) => {
+  const { email, otp } = req.body;
+  const storedOtp = otpMap.get(email);
+
+  if (storedOtp === otp) {
+    otpMap.delete(email);
+    res.json({ message: "OTP verified" });
+  } else {
+    res.status(400).json({ error: "Invalid OTP" });
+  }
+});
+
+app.post("/reset-password", async (req, res) => {
+  const { email, newPassword } = req.body;
+  const user = await UserModel.findOne({ email });
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  user.password = bcrypt.hashSync(newPassword, bcryptSalt);
+  await user.save();
+  res.json({ message: "Password reset successful" });
+});
 
 app.get("/test", (req, res) => {
   res.json("test ok");
@@ -124,34 +216,14 @@ app.post("/logout", (req, res) => {
   res.cookie("token", "").json(true);
 });
 
-const eventSchema = new mongoose.Schema({
-  owner: String,
-  title: String,
-  description: String,
-  organizedBy: String,
-  eventDate: Date,
-  eventTime: String,
-  location: String,
-  Participants: Number,
-  Count: Number,
-  Income: Number,
-  ticketPrice: Number,
-  Quantity: Number,
-  image: String,
-  likes: Number,
-  Comment: [String],
-});
-
-const Event = mongoose.model("Event", eventSchema);
-
 app.post(
   "/createEvent",
   roleCheck(["admin", "organizer"]),
-  upload.single("image"),
+  // upload.single("image"),
   async (req, res) => {
     try {
       const eventData = req.body;
-      eventData.image = req.file ? req.file.path : "";
+      // eventData.image = req.file ? req.file.path : "";
       const newEvent = new Event(eventData);
       await newEvent.save();
       res.status(201).json(newEvent);
@@ -235,9 +307,12 @@ app.get("/event/:id/ordersummary/paymentsummary", async (req, res) => {
 app.post("/tickets", async (req, res) => {
   try {
     const ticketDetails = req.body;
-    // Generate QR code for ticket validation
+    // Generate QR code for ticket validation using the ticket details id and email
     const qrCodeData = await QRCode.toDataURL(
-      ticketDetails.ticketDetails.email
+      JSON.stringify({
+        ticketId: req.body.ticketDetails.ticketId,
+        email: ticketDetails.ticketDetails.email,
+      })
     );
     const newTicket = new Ticket({
       ...ticketDetails,
