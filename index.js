@@ -54,7 +54,7 @@ app.use(cookieParser());
 
 const allowedOrigins = [
   "http://localhost:5173", // Local development URL
-  "https://event-management-frontend-ruby.vercel.app/" // Replace with your production frontend URL
+  "https://event-management-frontend-liart.vercel.app" // Replace with your production frontend URL
 ];
 app.use(cors({
   credentials: true,
