@@ -51,7 +51,21 @@ const jwtSecret = process.env.JWT_SECRET;
 
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({ credentials: true, origin: "http://localhost:5173" }));
+
+const allowedOrigins = [
+  "http://localhost:5173", // Local development URL
+  "https://event-management-frontend-ruby.vercel.app/" // Replace with your production frontend URL
+];
+app.use(cors({
+  credentials: true,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+}));
 
 // Connect to MongoDB
 connectToMongoDB();
