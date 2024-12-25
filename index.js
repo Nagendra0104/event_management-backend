@@ -134,24 +134,31 @@ app.get("/test", (req, res) => {
 });
 
 const roleCheck = (roles) => {
-  return (req, res, next) => {
-    const { token } = req.cookies;
-    if (token) {
+  return async (req, res, next) => {
+    try {
+      const { token } = req.cookies;
+      if (!token) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
       jwt.verify(token, jwtSecret, {}, async (err, userData) => {
-        if (err) throw err;
+        if (err) return res.status(401).json({ message: "Invalid token" });
+        console.log(userData)
         const user = await UserModel.findById(userData.id);
-        if (roles.includes(user.role)) {
-          req.user = user;
-          next();
-        } else {
-          res.status(403).json({ message: "Forbidden" });
+        console.log(user);
+        console.log(roles);
+        if (!user || !roles.includes(user.role)) {
+          return res.status(403).json({ message: "Forbidden" });
         }
+        req.user = user;
+        next();
       });
-    } else {
-      res.status(401).json({ message: "Unauthorized" });
+    } catch (error) {
+      console.error("Middleware error:", error);
+      res.status(500).json({ message: "Server error" });
     }
   };
 };
+
 
 app.post("/register", async (req, res) => {
   const { name, email, password, role } = req.body;
