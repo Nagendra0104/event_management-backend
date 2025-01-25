@@ -147,31 +147,31 @@ app.get("/test", (req, res) => {
   res.json("test ok");
 });
 
-const roleCheck = (roles) => {
-  return async (req, res, next) => {
-    try {
-      const { token } = req.cookies;
-      if (!token) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-      jwt.verify(token, jwtSecret, {}, async (err, userData) => {
-        if (err) return res.status(401).json({ message: "Invalid token" });
-        console.log(userData)
-        const user = await UserModel.findById(userData.id);
-        console.log(user);
-        console.log(roles);
-        if (!user || !roles.includes(user.role)) {
-          return res.status(403).json({ message: "Forbidden" });
-        }
-        req.user = user;
-        next();
-      });
-    } catch (error) {
-      console.error("Middleware error:", error);
-      res.status(500).json({ message: "Server error" });
-    }
-  };
-};
+// const roleCheck = (roles) => {
+//   return async (req, res, next) => {
+//     try {
+//       const { token } = req.cookies;
+//       if (!token) {
+//         return res.status(401).json({ message: "Unauthorized" });
+//       }
+//       jwt.verify(token, jwtSecret, {}, async (err, userData) => {
+//         if (err) return res.status(401).json({ message: "Invalid token" });
+//         console.log(userData)
+//         const user = await UserModel.findById(userData.id);
+//         console.log(user);
+//         console.log(roles);
+//         if (!user || !roles.includes(user.role)) {
+//           return res.status(403).json({ message: "Forbidden" });
+//         }
+//         req.user = user;
+//         next();
+//       });
+//     } catch (error) {
+//       console.error("Middleware error:", error);
+//       res.status(500).json({ message: "Server error" });
+//     }
+//   };
+// };
 
 
 app.post("/register", async (req, res) => {
@@ -237,9 +237,51 @@ app.post("/logout", (req, res) => {
   res.cookie("token", "").json(true);
 });
 
+app.get("/users", async (req, res) => {
+  try {
+    const users = await UserModel.find();
+    res.status(200).json({users});
+  }
+  catch (error) {
+    res.status(500).json({ error: "Failed to fetch users from MongoDB" });
+  }
+});
+
+app.get("/user/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const user = await UserModel.findById(id);
+    res.json({user});
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch user from MongoDB" });
+  }
+});
+
+app.put("/user/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const updatedUser = await UserModel.findByIdAndUpdate(id, req
+      .body, { new: true });
+    res.json({updatedUser});
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update user in MongoDB" });
+  }
+});
+
+app.delete("/user/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await UserModel.findByIdAndDelete(id);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete user from MongoDB" });
+  }
+}
+);
+
 app.post(
   "/createEvent",
-  roleCheck(["admin", "organizer"]),
+  // roleCheck(["admin", "organizer"]),
   // upload.single("image"),
   async (req, res) => {
     try {
@@ -254,10 +296,50 @@ app.post(
   }
 );
 
-app.get("/createEvent", async (req, res) => {
+app.post("/updateEvent/:id", async (req, res) => {
+  const { id } = req.params;
   try {
-    const events = await Event.find();
-    res.status(200).json(events);
+    const updatedEvent = await Event.findByIdAndUpdate(id, req
+      .body, { new: true });
+    res.json({updatedEvent});
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update event in MongoDB" });
+  }
+});
+
+app.delete("/deleteEvent/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await Event.findByIdAndDelete(id);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete event from MongoDB" });
+  }
+});
+
+app.get("/events", async (req, res) => {
+  try {
+    const events = await Event.find({});
+
+    //check if event is outdated
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
+      const eventDate = new Date(event.eventDate);
+      const currentDate = new Date();
+      if (eventDate < currentDate) {
+        event.outDated = true;
+        await event.save();
+      }
+
+      // Get ticket count for each event
+      const ticketCount = await Ticket.countDocuments({ eventid: event._id });
+      event.ticketCount = ticketCount;
+      await event.save();
+
+    }
+
+
+    res.status(200).json({ events });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch events from MongoDB" });
   }
@@ -268,6 +350,36 @@ app.get("/event/:id", async (req, res) => {
   try {
     const event = await Event.findById(id);
     res.json(event);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch event from MongoDB" });
+  }
+});
+
+//get all events by organizeremail
+app.get("/event/organizer/:organizerEmail", async (req, res) => {
+  const { organizerEmail } = req.params;
+  try {
+    const events = await Event.find({ organizerEmail });
+
+    //check if event is outdated
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
+      const eventDate = new Date(event.eventDate);
+      const currentDate = new Date();
+      if (eventDate < currentDate) {
+        event.outDated = true;
+        await event.save();
+      }
+
+
+      // Get ticket count for each event
+      const ticketCount = await Ticket.countDocuments({ eventid: event._id });
+      event.ticketCount = ticketCount;
+      await event.save();
+
+    }
+
+    res.json({events});
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch event from MongoDB" });
   }
@@ -294,16 +406,16 @@ app.post("/event/:eventId", (req, res) => {
     });
 });
 
-app.get("/events", (req, res) => {
-  Event.find()
-    .then((events) => {
-      res.json(events);
-    })
-    .catch((error) => {
-      console.error("Error fetching events:", error);
-      res.status(500).json({ message: "Server error" });
-    });
-});
+// app.get("/events", (req, res) => {
+//   Event.find()
+//     .then((events) => {
+//       res.json(events);
+//     })
+//     .catch((error) => {
+//       console.error("Error fetching events:", error);
+//       res.status(500).json({ message: "Server error" });
+//     });
+// });
 
 app.get("/event/:id/ordersummary", async (req, res) => {
   const { id } = req.params;
@@ -335,6 +447,7 @@ app.post("/tickets", async (req, res) => {
         email: ticketDetails.ticketDetails.email,
       })
     );
+    
     const newTicket = new Ticket({
       ...ticketDetails,
       ticketDetails: {
@@ -343,6 +456,10 @@ app.post("/tickets", async (req, res) => {
       },
     });
     await newTicket.save();
+
+    // Increment ticketCount in the event
+    await Event.findByIdAndUpdate(ticketDetails.eventid, { $inc: { ticketCount: 1 } });
+
     return res.status(201).json({ ticket: newTicket });
   } catch (error) {
     console.error("Error creating ticket:", error);
@@ -352,7 +469,19 @@ app.post("/tickets", async (req, res) => {
 
 app.get("/tickets/:id", async (req, res) => {
   try {
-    const tickets = await Ticket.find();
+    const tickets = await Ticket.findById(req.params.id).populate("userid").populate("eventid");
+
+    //check if ticket is outdated
+    const event = await Event.findById(tickets.eventid);
+    const eventDate = new Date(event.eventDate);
+    const currentDate = new Date();
+    if (eventDate < currentDate) {
+      tickets.isValid = false;
+      await tickets.save();
+    }
+
+
+
     res.json(tickets);
   } catch (error) {
     console.error("Error fetching tickets:", error);
@@ -360,12 +489,65 @@ app.get("/tickets/:id", async (req, res) => {
   }
 });
 
+app.delete("/tickets/:id", async (req, res) => {
+  try {
+    await Ticket.findByIdAndDelete(req.params.id);
+    res.status(204).send();
+  } catch (error) {
+    console.error("Error deleting ticket:", error);
+    res.status(500).json({ error: "Failed to delete ticket" });
+  }
+});
+
+app.get("/all-tickets", async (req, res) => {
+  try {
+    const tickets = await Ticket.find({}).populate("userid").populate("eventid");
+
+    // Check if ticket is outdated
+    const currentDate = new Date();
+    for (let i = 0; i < tickets.length; i++) {
+      const ticket = tickets[i];
+      console.log("Ticket:", ticket);
+      if (!ticket.eventid) {
+        console.error("Event ID is null for ticket:", ticket._id);
+        continue;
+      }
+      console.log("Event ID:", ticket.eventid);
+      const eventDate = new Date(ticket.eventid.eventDate);
+      if (eventDate < currentDate) {
+        ticket.isValid = false;
+        await ticket.save();
+      }
+    }
+
+    res.json({ tickets });
+  } catch (error) {
+    console.error("Error fetching tickets:", error);
+    res.status(500).json({ error: "Failed to fetch tickets" });
+  }
+});
+
+app.get("/tickets/event/:organizerEmail", async (req, res) => {
+  const organizerEmail = req.params.organizerEmail;
+  try {
+    const events = await Event.find({ organizerEmail });
+    const eventIds = events.map(event => event._id);
+    const tickets = await Ticket.find({ eventid: { $in: eventIds } }).populate("userid").populate("eventid");
+    res.json({ tickets });
+  } catch (error) {
+    console.error("Error fetching tickets for organizer:", error);
+    res.status(500).json({ error: "Failed to fetch tickets for organizer" });
+  }
+});
+
 app.get("/tickets/user/:userId", (req, res) => {
   const userId = req.params.userId;
 
   Ticket.find({ userid: userId })
+    .populate("userid")
+    .populate("eventid")
     .then((tickets) => {
-      res.json(tickets);
+      res.json({tickets});
     })
     .catch((error) => {
       console.error("Error fetching user tickets:", error);

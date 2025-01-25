@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const eventSchema = new mongoose.Schema({
   owner: String,
   title: String,
+  organizerEmail: String,
   description: String,
   organizedBy: String,
   eventDate: Date,
@@ -15,6 +16,8 @@ const eventSchema = new mongoose.Schema({
   Quantity: Number,
   image: String,
   likes: Number,
+  ticketCount: Number,
+  outDated: Boolean,
   Comment: [String],
 });
 
